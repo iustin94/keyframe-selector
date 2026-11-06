@@ -1,0 +1,110 @@
+{{ define "main" }}
+<header class="app-header">
+  <h1>{{ site.Title }}</h1>
+  <p>Pick frames from a video and download them as images. The video never leaves your browser.</p>
+</header>
+
+<main class="workspace">
+  <section id="source-picker" class="source-picker">
+    <div id="drop-zone" class="drop-zone">
+      <p>Drop a video file here</p>
+      <label class="button primary">
+        Choose video file
+        <input id="video-file" type="file" accept="video/*" hidden>
+      </label>
+    </div>
+
+    <p class="source-divider">or</p>
+
+    <form id="video-url-form" class="url-form">
+      <label class="field url-field">
+        Video URL
+        <input id="video-url" type="url" placeholder="https://example.com/clip.mp4" required>
+      </label>
+      <button class="button primary" type="submit">Load from URL</button>
+      <p class="hint">The server must allow cross-origin access (CORS), otherwise frames cannot be exported.</p>
+    </form>
+  </section>
+
+  <section id="player" class="player" hidden>
+    <div class="player-header">
+      <span id="video-name" class="video-name"></span>
+      <button id="change-video" class="button" type="button">Change video</button>
+    </div>
+
+    <video id="video" playsinline preload="auto"></video>
+
+    <input id="scrubber" class="scrubber" type="range" min="0" max="0" step="1" value="0" aria-label="Frame">
+
+    <div class="transport">
+      <button id="back-ten" class="button" type="button" title="Back 10 frames (Shift+←)">« 10</button>
+      <button id="back-one" class="button" type="button" title="Previous frame (←)">‹ 1</button>
+      <button id="play-pause" class="button" type="button" title="Play / pause (Space)">Play</button>
+      <button id="forward-one" class="button" type="button" title="Next frame (→)">1 ›</button>
+      <button id="forward-ten" class="button" type="button" title="Forward 10 frames (Shift+→)">10 »</button>
+      <output id="frame-readout" class="readout">Frame 0 / 0 · 00:00.000</output>
+    </div>
+
+    <div class="frame-tools">
+      <label class="field">
+        FPS
+        <input id="frames-per-second" type="number" min="1" max="1000" step="any" value="30">
+      </label>
+      <span id="frame-rate-source" class="hint"></span>
+      <button id="toggle-frame" class="button primary" type="button">Add frame (S)</button>
+    </div>
+
+    <details class="range-picker">
+      <summary>Add a range of frames</summary>
+      <div class="range-fields">
+        <label class="field">From <input id="range-from" type="number" min="0" step="1" value="0"></label>
+        <label class="field">To <input id="range-to" type="number" min="0" step="1" value="0"></label>
+        <label class="field">Every <input id="range-every" type="number" min="1" step="1" value="10"> frames</label>
+        <button id="add-range" class="button" type="button">Add range</button>
+      </div>
+    </details>
+  </section>
+
+  <aside id="selection-panel" class="selection" hidden>
+    <div class="selection-header">
+      <h2><span id="selection-count">0</span> frames selected</h2>
+      <button id="clear-selection" class="button" type="button">Clear</button>
+    </div>
+
+    <ol id="selection-list" class="thumbnails"></ol>
+
+    <div class="export">
+      <label class="field">
+        Format
+        <select id="image-format">
+          <option value="png">PNG</option>
+          <option value="jpeg">JPEG</option>
+          <option value="webp">WebP</option>
+        </select>
+      </label>
+      <label class="field">
+        Quality
+        <input id="image-quality" type="range" min="0.5" max="1" step="0.01" value="0.92" disabled>
+        <output id="image-quality-readout">92%</output>
+      </label>
+      <label class="field">
+        File name prefix
+        <input id="file-prefix" type="text" value="frame">
+      </label>
+      <div class="export-actions">
+        <button id="download-zip" class="button primary" type="button">Download ZIP</button>
+        <button id="download-files" class="button" type="button">Download images</button>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<div id="status" class="status" role="status" aria-live="polite" hidden>
+  <span id="status-message"></span>
+  <progress id="status-progress" max="1" value="0" hidden></progress>
+</div>
+
+<footer class="app-footer">
+  <kbd>←</kbd>/<kbd>→</kbd> step · <kbd>Shift</kbd> ×10 · <kbd>Space</kbd> play/pause · <kbd>S</kbd> add/remove frame
+</footer>
+{{ end }}
