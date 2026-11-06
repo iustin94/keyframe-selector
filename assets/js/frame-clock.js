@@ -36,6 +36,15 @@ export class FrameClock {
     return Math.min(midpoint, latestSeekableTime);
   }
 
+  startOf(frame) {
+    return this.clampFrame(frame) / this.framesPerSecond;
+  }
+
+  endOf(frame) {
+    const nextFrameStart = (this.clampFrame(frame) + 1) / this.framesPerSecond;
+    return Math.min(nextFrameStart, this.duration);
+  }
+
   static #guardFramesPerSecond(framesPerSecond) {
     const positive = Number.isFinite(framesPerSecond) && framesPerSecond > 0;
     if (!positive) throw new InvalidFrameClockError(`Frame rate must be a positive number, got "${framesPerSecond}".`);

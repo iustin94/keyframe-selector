@@ -5,6 +5,7 @@ import { VideoSource } from "./video-source.js";
 import { guardSeekable, seekTo, captureFrame, captureThumbnail } from "./video-frames.js";
 import { buildZip } from "./zip-archive.js";
 import { downloadBlob } from "./download.js";
+import { ClipExportCanceledError, clipContainers, exportClip } from "./clip-export.js";
 
 const largeRangeThreshold = 500;
 const individualDownloadPauseMilliseconds = 300;
@@ -25,6 +26,8 @@ class VideoLoadError extends Error {
 const byId = (id) => document.getElementById(id);
 
 const ui = {
+  workspace: byId("workspace"),
+  workflowChoices: document.querySelectorAll('input[name="workflow"]'),
   sourcePicker: byId("source-picker"),
   dropZone: byId("drop-zone"),
   fileInput: byId("video-file"),
@@ -58,22 +61,58 @@ const ui = {
   filePrefix: byId("file-prefix"),
   downloadZip: byId("download-zip"),
   downloadFiles: byId("download-files"),
+  clipBand: byId("clip-band"),
+  markIn: byId("mark-in"),
+  markOut: byId("mark-out"),
+  playClip: byId("play-clip"),
+  clipPanel: byId("clip-panel"),
+  clipIn: byId("clip-in"),
+  clipOut: byId("clip-out"),
+  clipSummary: byId("clip-summary"),
+  clipFrameRate: byId("clip-frame-rate"),
+  clipCustomRateField: byId("clip-custom-rate-field"),
+  clipCustomRate: byId("clip-custom-rate"),
+  clipContainer: byId("clip-container"),
+  clipAudio: byId("clip-audio"),
+  clipName: byId("clip-name"),
+  exportClip: byId("export-clip"),
   status: byId("status"),
   statusMessage: byId("status-message"),
   statusProgress: byId("status-progress"),
+  statusCancel: byId("status-cancel"),
 };
 
 const selection = new FrameSelection(renderSelection);
 let clock = null;
 let source = null;
 let busy = false;
+let clipInTime = 0;
+let clipOutTime = 0;
+let clipPlaybackEnd = null;
+let clipExportAbort = null;
 
+wireWorkflowSwitch();
 wireSourcePicker();
 wirePlayer();
 wireSelection();
+wireClip();
 wireKeyboard();
 window.addEventListener("unhandledrejection", (event) => reportError(event.reason));
-ui.status.addEventListener("click", clearStatus);
+ui.statusMessage.addEventListener("click", clearStatus);
+ui.statusCancel.addEventListener("click", () => clipExportAbort?.abort());
+
+function wireWorkflowSwitch() {
+  for (const choice of ui.workflowChoices) {
+    choice.addEventListener("change", () => {
+      ui.workspace.dataset.workflow = choice.value;
+      choice.blur();
+    });
+  }
+}
+
+function currentWorkflow() {
+  return ui.workspace.dataset.workflow;
+}
 
 function wireSourcePicker() {
   ui.fileInput.addEventListener("change", () => {
@@ -106,7 +145,7 @@ function wireSourcePicker() {
 }
 
 function wirePlayer() {
-  ui.scrubber.addEventListener("input", () => showFrame(Number(ui.scrubber.value)));
+  ui.scrubber.addEventListener("input", showScrubbedFrame);
   ui.backTen.addEventListener("click", () => stepFrames(-10));
   ui.backOne.addEventListener("click", () => stepFrames(-1));
   ui.forwardOne.addEventListener("click", () => stepFrames(1));
@@ -117,6 +156,7 @@ function wirePlayer() {
   ui.framesPerSecond.addEventListener("change", applyManualFrameRate);
   ui.video.addEventListener("seeked", renderReadout);
   ui.video.addEventListener("timeupdate", renderReadout);
+  ui.video.addEventListener("timeupdate", stopAtClipEnd);
   ui.video.addEventListener("play", renderPlayState);
   ui.video.addEventListener("pause", renderPlayState);
   ui.video.addEventListener("click", togglePlayback);
@@ -133,6 +173,17 @@ function wireSelection() {
 
   ui.downloadZip.addEventListener("click", () => runExclusive(downloadAsZip));
   ui.downloadFiles.addEventListener("click", () => runExclusive(downloadAsFiles));
+}
+
+function wireClip() {
+  ui.markIn.addEventListener("click", markClipIn);
+  ui.markOut.addEventListener("click", markClipOut);
+  ui.playClip.addEventListener("click", playClip);
+  ui.clipIn.addEventListener("change", applyEnteredClipIn);
+  ui.clipOut.addEventListener("change", applyEnteredClipOut);
+  ui.clipFrameRate.addEventListener("change", renderClip);
+  ui.clipCustomRate.addEventListener("input", renderClip);
+  ui.exportClip.addEventListener("click", () => runExclusive(exportClipFile));
 }
 
 function wireKeyboard() {
@@ -155,13 +206,21 @@ function wireKeyboard() {
         event.preventDefault();
         togglePlayback();
         break;
-      case "s":
-      case "S":
-        event.preventDefault();
-        runExclusive(toggleCurrentFrame);
-        break;
+      default:
+        handleWorkflowKey(event);
     }
   });
+}
+
+function handleWorkflowKey(event) {
+  const key = event.key.toLowerCase();
+  const framesKeys = { s: () => runExclusive(toggleCurrentFrame) };
+  const clipKeys = { i: markClipIn, o: markClipOut, p: playClip };
+  const keys = currentWorkflow() === "clip" ? clipKeys : framesKeys;
+  const action = keys[key];
+  if (!action) return;
+  event.preventDefault();
+  action();
 }
 
 function isTextEntry(target) {
@@ -191,13 +250,16 @@ async function openSource(nextSource) {
   selection.clear();
   ui.videoName.textContent = source.name;
   ui.filePrefix.value = source.stem;
+  ui.clipName.value = `${source.stem}-clip`;
   reportProgress(`Loading ${source.name}…`);
   await loadIntoVideo(source);
   guardSeekable(ui.video);
   clearStatus();
   await establishFrameRate();
+  resetClip();
   ui.sourcePicker.hidden = true;
   ui.player.hidden = false;
+  ui.clipPanel.hidden = false;
   showFrame(0);
 }
 
@@ -263,6 +325,7 @@ function applyFrameRate(framesPerSecond, origin) {
   ui.rangeTo.max = String(clock.lastFrame);
   ui.rangeTo.value = String(clock.lastFrame);
   renderSelection();
+  renderClip();
   renderReadout();
 }
 
@@ -270,6 +333,7 @@ function showSourcePicker() {
   ui.video.pause();
   ui.player.hidden = true;
   ui.selectionPanel.hidden = true;
+  ui.clipPanel.hidden = true;
   ui.sourcePicker.hidden = false;
 }
 
@@ -281,6 +345,11 @@ function showFrame(frame) {
   ui.video.currentTime = clock.timeOf(frame);
 }
 
+function showScrubbedFrame() {
+  const scrubbed = Number(ui.scrubber.value);
+  showFrame(scrubbed);
+}
+
 function stepFrames(delta) {
   ui.video.pause();
   const target = clock.clampFrame(currentFrame() + delta);
@@ -288,6 +357,7 @@ function stepFrames(delta) {
 }
 
 function togglePlayback() {
+  clipPlaybackEnd = null;
   if (ui.video.paused) {
     ui.video.play().catch(reportError);
     trackPlayback();
@@ -302,10 +372,122 @@ function trackPlayback() {
 
   function onFrame() {
     renderReadout();
+    stopAtClipEnd();
     if (!ui.video.paused) ui.video.requestVideoFrameCallback(onFrame);
   }
 
   ui.video.requestVideoFrameCallback(onFrame);
+}
+
+function resetClip() {
+  clipInTime = clock.timeOf(0);
+  clipOutTime = clock.timeOf(clock.lastFrame);
+  renderClip();
+}
+
+function clipInFrame() {
+  return clock.frameAt(clipInTime);
+}
+
+function clipOutFrame() {
+  return clock.frameAt(clipOutTime);
+}
+
+function applyEnteredClipIn() {
+  const entered = Number(ui.clipIn.value);
+  setClipInFrame(entered);
+}
+
+function applyEnteredClipOut() {
+  const entered = Number(ui.clipOut.value);
+  setClipOutFrame(entered);
+}
+
+function markClipIn() {
+  setClipInFrame(currentFrame());
+}
+
+function markClipOut() {
+  setClipOutFrame(currentFrame());
+}
+
+function setClipInFrame(frame) {
+  const inFrame = clock.clampFrame(Math.floor(frame));
+  const outFrame = Math.max(inFrame, clipOutFrame());
+  clipInTime = clock.timeOf(inFrame);
+  clipOutTime = clock.timeOf(outFrame);
+  renderClip();
+}
+
+function setClipOutFrame(frame) {
+  const outFrame = clock.clampFrame(Math.floor(frame));
+  const inFrame = Math.min(outFrame, clipInFrame());
+  clipInTime = clock.timeOf(inFrame);
+  clipOutTime = clock.timeOf(outFrame);
+  renderClip();
+}
+
+function playClip() {
+  const inFrame = clipInFrame();
+  const outFrame = clipOutFrame();
+  showFrame(inFrame);
+  ui.video.play().catch(reportError);
+  clipPlaybackEnd = clock.endOf(outFrame);
+  trackPlayback();
+}
+
+function stopAtClipEnd() {
+  const reachedEnd = clipPlaybackEnd !== null && ui.video.currentTime >= clipPlaybackEnd;
+  if (!reachedEnd) return;
+  clipPlaybackEnd = null;
+  ui.video.pause();
+  showFrame(clipOutFrame());
+}
+
+function selectedClipFrameRate() {
+  switch (ui.clipFrameRate.value) {
+    case "source":
+      return null;
+    case "custom":
+      return Number(ui.clipCustomRate.value);
+    default:
+      return Number(ui.clipFrameRate.value);
+  }
+}
+
+async function exportClipFile() {
+  ui.video.pause();
+  const container = clipContainers[ui.clipContainer.value];
+  const inFrame = clipInFrame();
+  const outFrame = clipOutFrame();
+  const mediaSource = source.openMediaSource();
+  const fileName = `${ui.clipName.value || "clip"}.${container.extension}`;
+  clipExportAbort = new AbortController();
+
+  const request = {
+    start: clock.startOf(inFrame),
+    end: clock.endOf(outFrame),
+    frameRate: selectedClipFrameRate(),
+    container,
+    includeAudio: ui.clipAudio.checked,
+    signal: clipExportAbort.signal,
+    onProgress: (fraction) => reportProgress(`Encoding ${fileName}…`, fraction),
+  };
+
+  reportProgress(`Preparing ${fileName}…`, 0);
+  ui.statusCancel.hidden = false;
+  try {
+    const clip = await exportClip(mediaSource, request);
+    const usedCodecs = [clip.codecs.video, clip.codecs.audio].filter(Boolean).join(" + ");
+    downloadBlob(clip.blob, fileName);
+    reportProgress(`Saved ${fileName} (${usedCodecs}).`);
+  } catch (error) {
+    if (!(error instanceof ClipExportCanceledError)) throw error;
+    reportProgress("Clip export cancelled.");
+  } finally {
+    ui.statusCancel.hidden = true;
+    clipExportAbort = null;
+  }
 }
 
 async function toggleCurrentFrame() {
@@ -417,6 +599,32 @@ function renderReadout() {
   ui.toggleFrame.classList.toggle("selected", selected);
 }
 
+function renderClip() {
+  if (!clock) return;
+  const inFrame = clipInFrame();
+  const outFrame = clipOutFrame();
+  const start = clock.startOf(inFrame);
+  const end = clock.endOf(outFrame);
+  const duration = end - start;
+  const sourceFrames = outFrame - inFrame + 1;
+  const outputRate = selectedClipFrameRate();
+  ui.clipIn.value = String(inFrame);
+  ui.clipOut.value = String(outFrame);
+  ui.clipIn.max = String(clock.lastFrame);
+  ui.clipOut.max = String(clock.lastFrame);
+  ui.clipCustomRateField.hidden = ui.clipFrameRate.value !== "custom";
+  ui.clipSummary.value = describeClip(duration, sourceFrames, outputRate);
+  ui.clipBand.style.left = `${(start / clock.duration) * 100}%`;
+  ui.clipBand.style.width = `${(duration / clock.duration) * 100}%`;
+}
+
+function describeClip(duration, sourceFrames, outputRate) {
+  const length = `${formatTime(duration)} · ${sourceFrames} source frames`;
+  if (outputRate === null) return `${length} → kept at source timing`;
+  const outputFrames = Math.round(duration * outputRate);
+  return `${length} → about ${outputFrames} frames at ${formatRate(outputRate)} fps`;
+}
+
 function renderPlayState() {
   ui.playPause.textContent = ui.video.paused ? "Play" : "Pause";
   renderReadout();
@@ -477,6 +685,7 @@ async function runExclusive(task) {
 
 function reportProgress(message, fraction) {
   ui.status.hidden = false;
+  ui.statusMessage.title = "";
   ui.status.classList.remove("error");
   ui.statusMessage.textContent = message;
   ui.statusProgress.hidden = fraction === undefined;
@@ -488,6 +697,7 @@ function reportError(error) {
   ui.status.hidden = false;
   ui.status.classList.add("error");
   ui.statusMessage.textContent = error?.message ?? String(error);
+  ui.statusMessage.title = "Click to dismiss";
   ui.statusProgress.hidden = true;
 }
 

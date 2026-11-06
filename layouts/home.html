@@ -4,7 +4,7 @@
   <p>Pick frames from a video and download them as images. The video never leaves your browser.</p>
 </header>
 
-<main class="workspace">
+<main id="workspace" class="workspace" data-workflow="frames">
   <section id="source-picker" class="source-picker">
     <div id="drop-zone" class="drop-zone">
       <p>Drop a video file here</p>
@@ -29,12 +29,19 @@
   <section id="player" class="player" hidden>
     <div class="player-header">
       <span id="video-name" class="video-name"></span>
+      <div class="workflow-switch" role="radiogroup" aria-label="Workflow">
+        <label><input type="radio" name="workflow" value="frames" checked> Frames</label>
+        <label><input type="radio" name="workflow" value="clip"> Clip</label>
+      </div>
       <button id="change-video" class="button" type="button">Change video</button>
     </div>
 
     <video id="video" playsinline preload="auto"></video>
 
-    <input id="scrubber" class="scrubber" type="range" min="0" max="0" step="1" value="0" aria-label="Frame">
+    <div class="scrubber-track">
+      <div id="clip-band" class="clip-band clip-only"></div>
+      <input id="scrubber" class="scrubber" type="range" min="0" max="0" step="1" value="0" aria-label="Frame">
+    </div>
 
     <div class="transport">
       <button id="back-ten" class="button" type="button" title="Back 10 frames (Shift+←)">« 10</button>
@@ -51,10 +58,15 @@
         <input id="frames-per-second" type="number" min="1" max="1000" step="any" value="30">
       </label>
       <span id="frame-rate-source" class="hint"></span>
-      <button id="toggle-frame" class="button primary" type="button">Add frame (S)</button>
+      <button id="toggle-frame" class="button primary frames-only" type="button">Add frame (S)</button>
+      <div class="clip-marks clip-only">
+        <button id="mark-in" class="button" type="button" title="Start the clip at this frame (I)">Set in (I)</button>
+        <button id="mark-out" class="button" type="button" title="End the clip at this frame (O)">Set out (O)</button>
+        <button id="play-clip" class="button" type="button" title="Play from in to out (P)">Play clip (P)</button>
+      </div>
     </div>
 
-    <details class="range-picker">
+    <details class="range-picker frames-only">
       <summary>Add a range of frames</summary>
       <div class="range-fields">
         <label class="field">From <input id="range-from" type="number" min="0" step="1" value="0"></label>
@@ -65,7 +77,55 @@
     </details>
   </section>
 
-  <aside id="selection-panel" class="selection" hidden>
+  <aside id="clip-panel" class="side-panel clip-only" hidden>
+    <h2>Clip</h2>
+
+    <div class="clip-range">
+      <label class="field">In frame <input id="clip-in" type="number" min="0" step="1" value="0"></label>
+      <label class="field">Out frame <input id="clip-out" type="number" min="0" step="1" value="0"></label>
+    </div>
+    <output id="clip-summary" class="hint"></output>
+
+    <div class="export">
+      <label class="field">
+        Output frame rate
+        <select id="clip-frame-rate">
+          <option value="source">Same as source</option>
+          <option value="60">60 fps</option>
+          <option value="50">50 fps</option>
+          <option value="30">30 fps</option>
+          <option value="25">25 fps</option>
+          <option value="24">24 fps</option>
+          <option value="15">15 fps</option>
+          <option value="12">12 fps</option>
+          <option value="10">10 fps</option>
+          <option value="5">5 fps</option>
+          <option value="custom">Custom…</option>
+        </select>
+      </label>
+      <label id="clip-custom-rate-field" class="field" hidden>
+        Custom frame rate
+        <input id="clip-custom-rate" type="number" min="0.1" max="240" step="any" value="8">
+      </label>
+      <label class="field">
+        Format
+        <select id="clip-container">
+          <option value="mp4">MP4 (H.264, AAC or Opus)</option>
+          <option value="webm">WebM (VP9, Opus)</option>
+        </select>
+      </label>
+      <label class="checkbox"><input id="clip-audio" type="checkbox" checked> Include audio</label>
+      <label class="field">
+        File name
+        <input id="clip-name" type="text" value="clip">
+      </label>
+      <div class="export-actions">
+        <button id="export-clip" class="button primary" type="button">Export clip</button>
+      </div>
+    </div>
+  </aside>
+
+  <aside id="selection-panel" class="side-panel selection frames-only" hidden>
     <div class="selection-header">
       <h2><span id="selection-count">0</span> frames selected</h2>
       <button id="clear-selection" class="button" type="button">Clear</button>
@@ -102,9 +162,10 @@
 <div id="status" class="status" role="status" aria-live="polite" hidden>
   <span id="status-message"></span>
   <progress id="status-progress" max="1" value="0" hidden></progress>
+  <button id="status-cancel" class="button" type="button" hidden>Cancel</button>
 </div>
 
 <footer class="app-footer">
-  <kbd>←</kbd>/<kbd>→</kbd> step · <kbd>Shift</kbd> ×10 · <kbd>Space</kbd> play/pause · <kbd>S</kbd> add/remove frame
+  <kbd>←</kbd>/<kbd>→</kbd> step · <kbd>Shift</kbd> ×10 · <kbd>Space</kbd> play/pause · <kbd>S</kbd> add/remove frame · <kbd>I</kbd>/<kbd>O</kbd> clip in/out · <kbd>P</kbd> play clip
 </footer>
 {{ end }}

@@ -42,7 +42,7 @@ body {
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-body.busy .button,
+body.busy .button:not(#status-cancel),
 body.busy input,
 body.busy select {
   pointer-events: none;
@@ -75,14 +75,15 @@ body.busy select {
 }
 
 @media (min-width: 1000px) {
-  .workspace:has(.selection:not([hidden])) {
+  .workspace[data-workflow="frames"]:has(#selection-panel:not([hidden])),
+  .workspace[data-workflow="clip"]:has(#clip-panel:not([hidden])) {
     grid-template-columns: minmax(0, 1fr) 360px;
   }
 }
 
 .source-picker,
 .player,
-.selection {
+.side-panel {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -197,8 +198,77 @@ video {
   border-radius: 6px;
 }
 
+.scrubber-track {
+  position: relative;
+}
+
 .scrubber {
+  position: relative;
   width: 100%;
+}
+
+.clip-band {
+  position: absolute;
+  top: 50%;
+  height: 14px;
+  transform: translateY(-50%);
+  border-radius: 4px;
+  background: var(--accent);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.workspace[data-workflow="frames"] .clip-only,
+.workspace[data-workflow="clip"] .frames-only {
+  display: none !important;
+}
+
+.workflow-switch {
+  display: inline-flex;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.workflow-switch label {
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.workflow-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.workflow-switch label:has(input:checked) {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.workflow-switch label:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.clip-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.clip-range {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .transport,
@@ -239,10 +309,15 @@ video {
   color: var(--muted);
 }
 
-.selection {
+.side-panel {
   display: grid;
   gap: 12px;
   align-content: start;
+}
+
+.side-panel h2 {
+  margin: 0;
+  font-size: 1.05rem;
 }
 
 .selection-header {

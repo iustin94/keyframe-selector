@@ -1,0 +1,7 @@
+{
+  "name": "keyframe-selector",
+  "private": true,
+  "dependencies": {
+    "mediabunny": "1.62.1"
+  }
+}
