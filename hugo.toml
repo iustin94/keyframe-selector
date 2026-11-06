@@ -1,5 +1,5 @@
 baseURL = "/"
-languageCode = "en"
+locale = "en"
 title = "Keyframe Selector"
 relativeURLs = true
 disableKinds = ["taxonomy", "term", "rss", "sitemap", "section", "page", "404"]
