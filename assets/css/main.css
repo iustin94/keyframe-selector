@@ -198,24 +198,112 @@ video {
   border-radius: 6px;
 }
 
-.scrubber-track {
+.scrubber {
+  width: 100%;
+}
+
+.video-stage {
   position: relative;
 }
 
-.scrubber {
-  position: relative;
+.video-stage video {
+  display: block;
+}
+
+.preview-canvas {
+  position: absolute;
+  inset: 0;
   width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.preview-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 0.65);
+  color: #fff;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.clip-slider {
+  position: relative;
+  height: 28px;
+}
+
+.clip-slider::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 6px;
+  transform: translateY(-50%);
+  border-radius: 3px;
+  background: var(--border);
 }
 
 .clip-band {
   position: absolute;
   top: 50%;
-  height: 14px;
+  height: 6px;
   transform: translateY(-50%);
+  border-radius: 3px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.clip-handle {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  pointer-events: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.clip-handle::-webkit-slider-runnable-track {
+  background: transparent;
+}
+
+.clip-handle::-moz-range-track {
+  background: transparent;
+}
+
+.clip-handle::-webkit-slider-thumb {
+  width: 14px;
+  height: 24px;
+  border: 2px solid var(--surface);
   border-radius: 4px;
   background: var(--accent);
-  opacity: 0.5;
-  pointer-events: none;
+  cursor: ew-resize;
+  pointer-events: auto;
+  -webkit-appearance: none;
+}
+
+.clip-handle::-moz-range-thumb {
+  width: 10px;
+  height: 20px;
+  border: 2px solid var(--surface);
+  border-radius: 4px;
+  background: var(--accent);
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
+.clip-handle.on-top {
+  z-index: 1;
 }
 
 .workspace[data-workflow="frames"] .clip-only,

@@ -36,11 +36,18 @@
       <button id="change-video" class="button" type="button">Change video</button>
     </div>
 
-    <video id="video" playsinline preload="auto"></video>
+    <div class="video-stage">
+      <video id="video" playsinline preload="auto"></video>
+      <canvas id="clip-preview-canvas" class="preview-canvas" hidden></canvas>
+      <span id="clip-preview-badge" class="preview-badge" hidden></span>
+    </div>
 
-    <div class="scrubber-track">
-      <div id="clip-band" class="clip-band clip-only"></div>
-      <input id="scrubber" class="scrubber" type="range" min="0" max="0" step="1" value="0" aria-label="Frame">
+    <input id="scrubber" class="scrubber" type="range" min="0" max="0" step="1" value="0" aria-label="Frame">
+
+    <div class="clip-slider clip-only">
+      <div id="clip-band" class="clip-band"></div>
+      <input id="clip-in-slider" class="clip-handle" type="range" min="0" max="0" step="1" value="0" aria-label="Clip start frame">
+      <input id="clip-out-slider" class="clip-handle" type="range" min="0" max="0" step="1" value="0" aria-label="Clip end frame">
     </div>
 
     <div class="transport">
@@ -62,7 +69,7 @@
       <div class="clip-marks clip-only">
         <button id="mark-in" class="button" type="button" title="Start the clip at this frame (I)">Set in (I)</button>
         <button id="mark-out" class="button" type="button" title="End the clip at this frame (O)">Set out (O)</button>
-        <button id="play-clip" class="button" type="button" title="Play from in to out (P)">Play clip (P)</button>
+        <button id="loop-clip" class="button primary" type="button" title="Loop the clip at its output frame rate (P)">Loop preview (P)</button>
       </div>
     </div>
 
@@ -166,6 +173,6 @@
 </div>
 
 <footer class="app-footer">
-  <kbd>←</kbd>/<kbd>→</kbd> step · <kbd>Shift</kbd> ×10 · <kbd>Space</kbd> play/pause · <kbd>S</kbd> add/remove frame · <kbd>I</kbd>/<kbd>O</kbd> clip in/out · <kbd>P</kbd> play clip
+  <kbd>←</kbd>/<kbd>→</kbd> step · <kbd>Shift</kbd> ×10 · <kbd>Space</kbd> play/pause · <kbd>S</kbd> add/remove frame · <kbd>I</kbd>/<kbd>O</kbd> clip in/out · <kbd>P</kbd> loop preview
 </footer>
 {{ end }}

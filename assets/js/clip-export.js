@@ -50,7 +50,7 @@ export class InvalidClipRangeError extends Error {
 
 export async function exportClip(mediaSource, request) {
   guardRange(request);
-  guardFrameRate(request.frameRate);
+  guardClipFrameRate(request.frameRate);
   const input = new Input({ source: mediaSource, formats: ALL_FORMATS });
   try {
     const codecs = await chooseCodecs(input, request);
@@ -108,7 +108,7 @@ function guardRange(request) {
   if (request.end <= request.start) throw new InvalidClipRangeError(request.start, request.end);
 }
 
-function guardFrameRate(frameRate) {
+export function guardClipFrameRate(frameRate) {
   const keepsSourceTiming = frameRate === null;
   const positive = Number.isFinite(frameRate) && frameRate > 0;
   const acceptable = keepsSourceTiming || positive;

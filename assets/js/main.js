@@ -5,7 +5,8 @@ import { VideoSource } from "./video-source.js";
 import { guardSeekable, seekTo, captureFrame, captureThumbnail } from "./video-frames.js";
 import { buildZip } from "./zip-archive.js";
 import { downloadBlob } from "./download.js";
-import { ClipExportCanceledError, clipContainers, exportClip } from "./clip-export.js";
+import { ClipExportCanceledError, clipContainers, exportClip, guardClipFrameRate } from "./clip-export.js";
+import { ClipPreview } from "./clip-preview.js";
 
 const largeRangeThreshold = 500;
 const individualDownloadPauseMilliseconds = 300;
@@ -62,9 +63,13 @@ const ui = {
   downloadZip: byId("download-zip"),
   downloadFiles: byId("download-files"),
   clipBand: byId("clip-band"),
+  clipInSlider: byId("clip-in-slider"),
+  clipOutSlider: byId("clip-out-slider"),
+  previewCanvas: byId("clip-preview-canvas"),
+  previewBadge: byId("clip-preview-badge"),
   markIn: byId("mark-in"),
   markOut: byId("mark-out"),
-  playClip: byId("play-clip"),
+  loopClip: byId("loop-clip"),
   clipPanel: byId("clip-panel"),
   clipIn: byId("clip-in"),
   clipOut: byId("clip-out"),
@@ -88,8 +93,8 @@ let source = null;
 let busy = false;
 let clipInTime = 0;
 let clipOutTime = 0;
-let clipPlaybackEnd = null;
 let clipExportAbort = null;
+const clipPreview = new ClipPreview(ui.video, ui.previewCanvas, describePreviewedClip, renderPreviewState);
 
 wireWorkflowSwitch();
 wireSourcePicker();
@@ -104,6 +109,7 @@ ui.statusCancel.addEventListener("click", () => clipExportAbort?.abort());
 function wireWorkflowSwitch() {
   for (const choice of ui.workflowChoices) {
     choice.addEventListener("change", () => {
+      clipPreview.stop();
       ui.workspace.dataset.workflow = choice.value;
       choice.blur();
     });
@@ -156,7 +162,6 @@ function wirePlayer() {
   ui.framesPerSecond.addEventListener("change", applyManualFrameRate);
   ui.video.addEventListener("seeked", renderReadout);
   ui.video.addEventListener("timeupdate", renderReadout);
-  ui.video.addEventListener("timeupdate", stopAtClipEnd);
   ui.video.addEventListener("play", renderPlayState);
   ui.video.addEventListener("pause", renderPlayState);
   ui.video.addEventListener("click", togglePlayback);
@@ -178,11 +183,13 @@ function wireSelection() {
 function wireClip() {
   ui.markIn.addEventListener("click", markClipIn);
   ui.markOut.addEventListener("click", markClipOut);
-  ui.playClip.addEventListener("click", playClip);
+  ui.loopClip.addEventListener("click", toggleClipPreview);
+  ui.clipInSlider.addEventListener("input", applySlidClipIn);
+  ui.clipOutSlider.addEventListener("input", applySlidClipOut);
   ui.clipIn.addEventListener("change", applyEnteredClipIn);
   ui.clipOut.addEventListener("change", applyEnteredClipOut);
-  ui.clipFrameRate.addEventListener("change", renderClip);
-  ui.clipCustomRate.addEventListener("input", renderClip);
+  ui.clipFrameRate.addEventListener("change", applyClipFrameRateChoice);
+  ui.clipCustomRate.addEventListener("input", applyClipFrameRateChoice);
   ui.exportClip.addEventListener("click", () => runExclusive(exportClipFile));
 }
 
@@ -215,7 +222,7 @@ function wireKeyboard() {
 function handleWorkflowKey(event) {
   const key = event.key.toLowerCase();
   const framesKeys = { s: () => runExclusive(toggleCurrentFrame) };
-  const clipKeys = { i: markClipIn, o: markClipOut, p: playClip };
+  const clipKeys = { i: markClipIn, o: markClipOut, p: toggleClipPreview };
   const keys = currentWorkflow() === "clip" ? clipKeys : framesKeys;
   const action = keys[key];
   if (!action) return;
@@ -351,13 +358,17 @@ function showScrubbedFrame() {
 }
 
 function stepFrames(delta) {
+  clipPreview.stop();
   ui.video.pause();
   const target = clock.clampFrame(currentFrame() + delta);
   showFrame(target);
 }
 
 function togglePlayback() {
-  clipPlaybackEnd = null;
+  if (clipPreview.running) {
+    clipPreview.stop();
+    return;
+  }
   if (ui.video.paused) {
     ui.video.play().catch(reportError);
     trackPlayback();
@@ -372,7 +383,6 @@ function trackPlayback() {
 
   function onFrame() {
     renderReadout();
-    stopAtClipEnd();
     if (!ui.video.paused) ui.video.requestVideoFrameCallback(onFrame);
   }
 
@@ -403,6 +413,18 @@ function applyEnteredClipOut() {
   setClipOutFrame(entered);
 }
 
+function applySlidClipIn() {
+  const slid = Number(ui.clipInSlider.value);
+  setClipInFrame(slid);
+  if (!clipPreview.running) showFrame(clipInFrame());
+}
+
+function applySlidClipOut() {
+  const slid = Number(ui.clipOutSlider.value);
+  setClipOutFrame(slid);
+  if (!clipPreview.running) showFrame(clipOutFrame());
+}
+
 function markClipIn() {
   setClipInFrame(currentFrame());
 }
@@ -427,21 +449,40 @@ function setClipOutFrame(frame) {
   renderClip();
 }
 
-function playClip() {
-  const inFrame = clipInFrame();
-  const outFrame = clipOutFrame();
-  showFrame(inFrame);
-  ui.video.play().catch(reportError);
-  clipPlaybackEnd = clock.endOf(outFrame);
-  trackPlayback();
+function toggleClipPreview() {
+  if (clipPreview.running) {
+    clipPreview.stop();
+    return;
+  }
+  validatedClipFrameRate();
+  clipPreview.start();
 }
 
-function stopAtClipEnd() {
-  const reachedEnd = clipPlaybackEnd !== null && ui.video.currentTime >= clipPlaybackEnd;
-  if (!reachedEnd) return;
-  clipPlaybackEnd = null;
-  ui.video.pause();
-  showFrame(clipOutFrame());
+function describePreviewedClip() {
+  const inFrame = clipInFrame();
+  const outFrame = clipOutFrame();
+  const start = clock.startOf(inFrame);
+  const end = clock.endOf(outFrame);
+  const firstFrameTime = clock.timeOf(inFrame);
+  const frameRate = selectedClipFrameRate();
+  return { start, end, firstFrameTime, frameRate };
+}
+
+function applyClipFrameRateChoice() {
+  renderClip();
+  if (!clipPreview.running) return;
+  try {
+    validatedClipFrameRate();
+  } catch (error) {
+    clipPreview.stop();
+    reportError(error);
+  }
+}
+
+function validatedClipFrameRate() {
+  const frameRate = selectedClipFrameRate();
+  guardClipFrameRate(frameRate);
+  return frameRate;
 }
 
 function selectedClipFrameRate() {
@@ -456,6 +497,7 @@ function selectedClipFrameRate() {
 }
 
 async function exportClipFile() {
+  clipPreview.stop();
   ui.video.pause();
   const container = clipContainers[ui.clipContainer.value];
   const inFrame = clipInFrame();
@@ -467,7 +509,7 @@ async function exportClipFile() {
   const request = {
     start: clock.startOf(inFrame),
     end: clock.endOf(outFrame),
-    frameRate: selectedClipFrameRate(),
+    frameRate: validatedClipFrameRate(),
     container,
     includeAudio: ui.clipAudio.checked,
     signal: clipExportAbort.signal,
@@ -614,8 +656,30 @@ function renderClip() {
   ui.clipOut.max = String(clock.lastFrame);
   ui.clipCustomRateField.hidden = ui.clipFrameRate.value !== "custom";
   ui.clipSummary.value = describeClip(duration, sourceFrames, outputRate);
-  ui.clipBand.style.left = `${(start / clock.duration) * 100}%`;
-  ui.clipBand.style.width = `${(duration / clock.duration) * 100}%`;
+  renderClipSliders(inFrame, outFrame);
+  renderPreviewState();
+}
+
+function renderClipSliders(inFrame, outFrame) {
+  const lastFrame = clock.lastFrame;
+  const span = Math.max(lastFrame, 1);
+  const inOnTop = inFrame === outFrame && inFrame > lastFrame / 2;
+  ui.clipInSlider.max = String(lastFrame);
+  ui.clipOutSlider.max = String(lastFrame);
+  ui.clipInSlider.value = String(inFrame);
+  ui.clipOutSlider.value = String(outFrame);
+  ui.clipInSlider.classList.toggle("on-top", inOnTop);
+  ui.clipBand.style.left = `${(inFrame / span) * 100}%`;
+  ui.clipBand.style.width = `${((outFrame - inFrame) / span) * 100}%`;
+}
+
+function renderPreviewState() {
+  const running = clipPreview.running;
+  const frameRate = selectedClipFrameRate();
+  const rateLabel = frameRate === null ? "source timing" : `${formatRate(frameRate)} fps`;
+  ui.loopClip.textContent = running ? "Stop preview (P)" : "Loop preview (P)";
+  ui.previewBadge.hidden = !running;
+  ui.previewBadge.textContent = `Preview · ${rateLabel}`;
 }
 
 function describeClip(duration, sourceFrames, outputRate) {
